@@ -82,7 +82,7 @@ def build_http_response(username):
 
 
 
-# --- funciones inspiradas en act no evaluada MODIFICARLAS ❗
+# --- funciones inspiradas en act no evaluada INSPIRACION ❗
 
 # esta función se encarga de recibir el mensaje completo desde el cliente
 # en caso de que el mensaje sea más grande que el tamaño del buffer 'buff_size', esta función va esperar a que
@@ -155,6 +155,7 @@ if __name__ == "__main__":
 
     # nos quedamos esperando a que llegue una petición de conexión
     print('Servidor http://localhost:8000 esperando clientes...')
+    print()
     while True:
         # cuando llega una petición de conexión la aceptamos
         # y se crea un nuevo socket que se comunicará con el cliente
@@ -172,7 +173,7 @@ if __name__ == "__main__":
         parsed = parse_HTTP_message(request_test)
         print("=== Resultado del parseo ===")
         print(parsed)
-
+        print("\n\n") 
         recreated = create_HTTP_message(parsed)
         print("=== Mensaje reconstruido ===")
         print(recreated)
@@ -185,6 +186,7 @@ if __name__ == "__main__":
         # cerramos la conexión
         # notar que la dirección que se imprime indica un número de puerto distinto al 5000
         new_socket.close()
+        print("\n\n") 
         print(f"conexión con {new_socket_address} ha sido cerrada")
 
         # seguimos esperando por si llegan otras conexiones
