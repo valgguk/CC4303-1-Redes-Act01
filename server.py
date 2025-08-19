@@ -1,4 +1,7 @@
 import socket
+import datetime
+import json
+import sys
 
 # Servidor HTTP : recibe mensajes de tipo HTTP (interpretar HEAD + BODY HTTP)
 
@@ -43,7 +46,41 @@ def create_HTTP_message(parsed):
         return start_line + "\r\n" + "\r\n".join(header_lines) + "\r\n\r\n"
 
 
-    
+
+def build_http_response(username):
+    body = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Mi Servidor Scala</title>
+</head>
+<body>
+    <h1>Hola desde mi servidor Scala jejeje nooo</h1>
+    <h3><a href="replace">El proxy es cuando</a></h3>
+</body>
+</html>"""
+
+    body_bytes = body.encode("utf-8")
+
+    # Fecha en formato HTTP (RFC 1123)
+    date_str = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    headers = (
+        "HTTP/1.1 200 OK\r\n"
+        "Server: PythonSocket/0.1\r\n"
+        f"Date: {date_str}\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        f"Content-Length: {len(body_bytes)}\r\n"
+        "Connection: close\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        f"X-ElQuePregunta: {username} \r\n"
+        "\r\n"
+    )
+
+    return headers.encode("utf-8") + body_bytes
+
+
+
 
 # --- funciones inspiradas en act no evaluada MODIFICARLAS ❗
 
@@ -87,9 +124,18 @@ def remove_end_of_message(full_message, end_sequence):
 
 
 if __name__ == "__main__":
+    # Manejo archivos Json
+    if len(sys.argv) < 2:
+        sys.exit(1)
+    config_file = sys.argv[1]
+    with open(config_file, "r") as f:
+        config = json.load(f)
+    nombre_usuario = config.get("nombre", "Desconocido")
+
     # definimos el tamaño del buffer de recepción y la secuencia de fin de mensaje
     buff_size = 4
     end_of_message = "\n"
+
     new_socket_address = ('localhost', 8000)
 
     print('Creando socket - Servidor')
@@ -120,6 +166,8 @@ if __name__ == "__main__":
 
         request_test = new_socket.recv(1024).decode("utf-8")
 
+        response_message = build_http_response(nombre_usuario)
+        new_socket.sendall(response_message)
         #print(f" -> Se ha recibido el siguiente mensaje: {request_test}")
         parsed = parse_HTTP_message(request_test)
         print("=== Resultado del parseo ===")
