@@ -20,22 +20,30 @@ def parse_HTTP_message(http_message):
         if line == "":
             body = "\r\n".join(lines[i+1:])
             break
-        header, value = line.split(": ", 1)
-        headers[header] = value
-    if start_line.startwith("GET"):
-        return headers
-    else:
-        return headers, body                # -> Diccionario, texto
+        if ": " in line:
+            header, value = line.split(": ", 1)
+            headers[header] = value
+
+    return {
+        "start_line": start_line,
+        "headers": headers,
+        "body": body
+    }
 
 # función toma estructura de datos y lo convierte a mensaje HTTP
-def create_HTTP_message(headers, body=None):
-    header_lines = [f"{key}: {value}" for key, value in headers.items()]
-    if body is not None:
-        return "\r\n".join(header_lines) + "\r\n\r\n" + body
-    else:
-        return "\r\n".join(header_lines) + "\r\n\r\n"
-    
+def create_HTTP_message(parsed):
+    start_line = parsed["start_line"]
+    headers = parsed["headers"]
+    body = parsed["body"]
 
+    header_lines = [f"{k}: {v}" for k, v in headers.items()]
+    if body:
+        return start_line + "\r\n" + "\r\n".join(header_lines) + "\r\n\r\n" + body
+    else:
+        return start_line + "\r\n" + "\r\n".join(header_lines) + "\r\n\r\n"
+
+
+    
 
 # --- funciones inspiradas en act no evaluada MODIFICARLAS ❗
 
@@ -82,7 +90,7 @@ if __name__ == "__main__":
     # definimos el tamaño del buffer de recepción y la secuencia de fin de mensaje
     buff_size = 4
     end_of_message = "\n"
-    new_socket_address = ('localhost', 5100)
+    new_socket_address = ('localhost', 8000)
 
     print('Creando socket - Servidor')
     # armamos el socket
@@ -100,7 +108,7 @@ if __name__ == "__main__":
     server_socket.listen(3)
 
     # nos quedamos esperando a que llegue una petición de conexión
-    print('... Esperando clientes')
+    print('Servidor http://localhost:8000 esperando clientes...')
     while True:
         # cuando llega una petición de conexión la aceptamos
         # y se crea un nuevo socket que se comunicará con el cliente
@@ -108,15 +116,23 @@ if __name__ == "__main__":
 
         # luego recibimos el mensaje usando la función que programamos
         # esta función entrega el mensaje EN STRING (no en bytes) y sin el end_of_message
-        recv_message = receive_full_message(new_socket, buff_size, end_of_message)
+        #recv_message = receive_full_message(new_socket, buff_size, end_of_message)
 
-        print(f' -> Se ha recibido el siguiente mensaje: {recv_message}')
+        request_test = new_socket.recv(1024).decode("utf-8")
 
+        #print(f" -> Se ha recibido el siguiente mensaje: {request_test}")
+        parsed = parse_HTTP_message(request_test)
+        print("=== Resultado del parseo ===")
+        print(parsed)
+
+        recreated = create_HTTP_message(parsed)
+        print("=== Mensaje reconstruido ===")
+        print(recreated)
         # respondemos indicando que recibimos el mensaje
-        response_message = f"Se ha sido recibido con éxito el mensaje: {recv_message}"
+        #response_message = f"Se ha sido recibido con éxito el mensaje: {recv_message}"
 
         # el mensaje debe pasarse a bytes antes de ser enviado, para ello usamos encode
-        new_socket.send(response_message.encode())
+        #new_socket.send(response_message.encode())
 
         # cerramos la conexión
         # notar que la dirección que se imprime indica un número de puerto distinto al 5000
