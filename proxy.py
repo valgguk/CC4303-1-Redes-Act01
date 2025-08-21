@@ -78,8 +78,11 @@ def read_http_request_bytes(client_sock: socket.socket) -> bytes:
     content_length = 0
     for line in headers_part.split("\r\n")[1:]:
         if line.startswith("content-length:"):
-            content_length = int(line.split(":", 1)[1].strip())
-        break
+            try:
+                content_length = int(line.split(":", 1)[1].strip())
+            except ValueError:
+                content_length = 0
+            break
 
     body = b""
     if content_length > 0:
