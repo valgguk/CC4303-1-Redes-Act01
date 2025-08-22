@@ -80,6 +80,68 @@ def build_http_response(username):
     return headers.encode("utf-8") + body_bytes
 
 
+def build_case1_response(username):
+    body = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Caso 1</title>
+</head>
+<body>
+    <p>Este body es suficientemente largo para forzar múltiples llamadas a recv(50). El proxy debe acumular hasta llegar a Content-Length.</p>
+</body>
+</html>"""
+
+    body_bytes = body.encode("utf-8")
+    date_str = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    headers = (
+        "HTTP/1.1 200 OK\r\n"
+        "Server: PythonSocket/0.1\r\n"
+        f"Date: {date_str}\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        f"Content-Length: {len(body_bytes)}\r\n"
+        "Connection: close\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        f"X-ElQuePregunta: {username}\r\n"
+        "\r\n"
+    )
+
+    return headers.encode("utf-8") + body_bytes
+
+
+def build_case2_response(username):
+    body = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Caso 2</title>
+</head>
+<body>
+    <p>Body corto, pero headers inflados para romper el buffer de 50.</p>
+</body>
+</html>"""
+
+    body_bytes = body.encode("utf-8")
+    date_str = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    
+    long_header = "X-Proxy-Test: " + ("A" * 80) + "\r\n"
+
+    headers = (
+        "HTTP/1.1 200 OK\r\n"
+        "Server: PythonSocket/0.1\r\n"
+        f"Date: {date_str}\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        f"Content-Length: {len(body_bytes)}\r\n"
+        "Connection: close\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        f"X-ElQuePregunta: {username}\r\n"
+        f"{long_header}"
+        "\r\n"
+    )
+
+    return headers.encode("utf-8") + body_bytes
 
 
 # --- funciones inspiradas en act no evaluada INSPIRACION ❗
@@ -221,6 +283,21 @@ if __name__ == "__main__":
                 client_socket.close()
                 break
         else:
+            # Casos de prueba controlados para parte 5
+            if uri == "/case1":
+                client_socket.sendall(build_case1_response(nombre_usuario))
+                client_socket.close()
+                continue
+            elif uri == "/case2":
+                client_socket.sendall(build_case2_response(nombre_usuario))
+                client_socket.close()
+                continue
+            elif uri.startswith("/build"):
+                client_socket.sendall(build_http_response(nombre_usuario))
+                client_socket.close()
+                continue
+
+
             # 2) Obtener host real desde los headers
             target_host = parsed["headers"].get("Host", "")
             target_port = 80
