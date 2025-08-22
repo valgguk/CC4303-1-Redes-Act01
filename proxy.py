@@ -122,6 +122,36 @@ def remove_end_of_message(full_message, end_sequence):
     index = full_message.rfind(end_sequence)
     return full_message[:index]
 
+def build_403_response():
+    body = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>403 - Acceso denegado</title>
+</head>
+<body>
+    <h1>😾 Acceso Denegado</h1>
+    <p>Este sitio ha sido bloqueado por el proxy.</p>
+    <img src="file:///absolute/path/to/gato.jpg" alt="gato bloqueado" width="300">
+</body>
+</html>"""
+
+    body_bytes = body.encode("utf-8")
+    date_str = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    headers = (
+        "HTTP/1.1 403 Forbidden\r\n"
+        "Server: PythonSocket/0.1\r\n"
+        f"Date: {date_str}\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        f"Content-Length: {len(body_bytes)}\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    )
+
+    return headers.encode("utf-8") + body_bytes
+
+
 # --- PROXY ---
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -130,6 +160,8 @@ if __name__ == "__main__":
     with open(config_file, "r") as f:
         config = json.load(f)
     nombre_usuario = config.get("nombre", "Desconocido")
+    blocked_sites = config.get("blocked", [])
+    forbidden_words = config.get("forbidden_words", [])
 
     proxy_address = ('localhost', 8000)
     print('Creando socket - Proxy HTTP')
@@ -157,33 +189,47 @@ if __name__ == "__main__":
         print(parsed["start_line"])
         print(parsed["headers"])
 
-        # 2) Obtener host real desde los headers
-        target_host = parsed["headers"].get("Host", "")
-        target_port = 80
+        # Obtener la URI completa de la start_line (ej: GET http://example.com/index.html HTTP/1.1)
+        uri = parsed["start_line"].split(" ")[1]
 
-        # 3) Conectar al servidor real
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.connect((target_host, target_port))
-        print(f"[PROXY] Conectado al servidor real: {target_host}:{target_port}")
-        print("=== Reenviando solicitud al servidor real ===")
-
-        # 4) Reenviar solicitud al servidor real
-        server_socket.sendall(client_request)
-
-        # 5) Leer respuesta del servidor real
-        server_response = b""
-        while True:
-            chunk = server_socket.recv(4096)
-            if not chunk:
+        # Verificar si está en la lista de sitios bloqueados
+        for blocked in blocked_sites:
+            if uri.startswith(blocked):
+                print(f"[PROXY] 🚫 Sitio bloqueado: {uri}")
+                forbidden_response = build_403_response()
+                client_socket.sendall(forbidden_response)
+                client_socket.close()
                 break
-            server_response += chunk
-        print("=== Respuesta recibida del servidor real ===")
-        print(server_response.decode("utf-8", errors="replace"))
-        print("=== Reenviando respuesta al cliente ===")
-        # 6) Reenviar respuesta al cliente
-        client_socket.sendall(server_response)
+        else:
+            # 2) Obtener host real desde los headers
+            target_host = parsed["headers"].get("Host", "")
+            target_port = 80
 
-        # 7) Cerrar sockets
-        server_socket.close()
-        client_socket.close()
-        print(f"[PROXY] Conexión cerrada: {client_address}\n")
+            
+
+            # 3) Conectar al servidor real
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket.connect((target_host, target_port))
+            print(f"[PROXY] Conectado al servidor real: {target_host}:{target_port}")
+            print("=== Reenviando solicitud al servidor real ===")
+
+            # 4) Reenviar solicitud al servidor real
+            server_socket.sendall(client_request)
+
+            # 5) Leer respuesta del servidor real
+            server_response = b""
+            while True:
+                chunk = server_socket.recv(4096)
+                if not chunk:
+                    break
+                server_response += chunk
+            print("=== Respuesta recibida del servidor real ===")
+            print(server_response.decode("utf-8", errors="replace"))
+            print("=== Reenviando respuesta al cliente ===")
+            # 6) Reenviar respuesta al cliente
+            client_socket.sendall(server_response)
+
+            # 7) Cerrar sockets
+            server_socket.close()
+            client_socket.close()
+            print(f"[PROXY] Conexión cerrada: {client_address}\n")

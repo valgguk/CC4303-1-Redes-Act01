@@ -1,3 +1,13 @@
 {
-  "nombre": "Vale Pablo Json"
+  "user": "tucorreo@ejemplo.cl",
+  "nombre": "Vale Pablo Json",
+  "blocked": [
+    "http://www.dcc.uchile.cl/",
+    "http://cc4303.bachmann.cl/secret"
+  ],
+  "forbidden_words": [
+    {"proxy": "[REDACTED]"},
+    {"DCC": "[FORBIDDEN]"},
+    {"biblioteca": "[???]"}
+  ]
 }
