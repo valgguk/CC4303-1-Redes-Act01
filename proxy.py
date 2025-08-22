@@ -214,7 +214,13 @@ if __name__ == "__main__":
             print("=== Reenviando solicitud al servidor real ===")
 
             # 4) Reenviar solicitud al servidor real
-            server_socket.sendall(client_request)
+            # server_socket.sendall(client_request)
+            # Agregar el header X-ElQuePregunta
+            parsed["headers"]["X-ElQuePregunta"] = nombre_usuario
+            # Reconstruir el mensaje HTTP con el nuevo header
+            updated_request = create_HTTP_message(parsed).encode("utf-8")
+            # Reenviar la solicitud modificada al servidor real
+            server_socket.sendall(updated_request)
 
             # 5) Leer respuesta del servidor real
             server_response = b""
