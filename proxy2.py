@@ -2,6 +2,7 @@ import socket
 import datetime
 import json
 import sys
+from urllib.parse import urlparse
 
 # Servidor HTTP : recibe mensajes de tipo HTTP (interpretar HEAD + BODY HTTP)
 
@@ -284,15 +285,19 @@ if __name__ == "__main__":
                 break
         else:
             # Casos de prueba controlados para parte 5
-            if uri == "/case1":
+            if uri.startswith("http://") or uri.startswith("https://"):
+                path = urlparse(uri).path
+            else:
+                path = uri
+            if path == "/case1":
                 client_socket.sendall(build_case1_response(nombre_usuario))
                 client_socket.close()
                 continue
-            elif uri == "/case2":
+            elif path == "/case2":
                 client_socket.sendall(build_case2_response(nombre_usuario))
                 client_socket.close()
                 continue
-            elif uri.startswith("/build"):
+            elif path.startswith("/build"):
                 client_socket.sendall(build_http_response(nombre_usuario))
                 client_socket.close()
                 continue
