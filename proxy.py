@@ -4,8 +4,7 @@ import json
 import sys
 
 # -----------------------------------------------------------
-# Utilidades iguales a las de tu server.py (para que coincida
-# la estructura y puedas imprimir/inspeccionar si quieres)
+# Utilidades iguales a las de tu server.py
 # -----------------------------------------------------------
 
 def parse_HTTP_message(http_message):
@@ -33,15 +32,10 @@ def create_HTTP_message(parsed):
         return start_line + "\r\n" + "\r\n".join(header_lines) + "\r\n\r\n"
 
 # -----------------------------------------------------------
-# Pequeñas utilidades de lectura para este proxy
-# (sin ser ultra-robustas; suficientes para la tarea)
+# Lectura simple
 # -----------------------------------------------------------
 
 def recv_until(sock, marker: bytes, bufsize: int = 4096) -> bytes:
-    """
-    Lee del socket hasta encontrar 'marker' (p.ej. b'\\r\\n\\r\\n').
-    Devuelve los bytes leídos (incluye el marker).
-    """
     data = b""
     while marker not in data:
         chunk = sock.recv(bufsize)
@@ -50,72 +44,48 @@ def recv_until(sock, marker: bytes, bufsize: int = 4096) -> bytes:
         data += chunk
     return data
 
-def recv_exact(sock, num_bytes: int) -> bytes:
-    """
-    Lee exactamente num_bytes del socket (bloqueante, simple).
-    """
+def recv_exact(sock, n: int) -> bytes:
     data = b""
-    while len(data) < num_bytes:
-        chunk = sock.recv(min(4096, num_bytes - len(data)))
+    while len(data) < n:
+        chunk = sock.recv(min(4096, n - len(data)))
         if not chunk:
             break
         data += chunk
     return data
 
 def read_http_request_bytes(client_sock: socket.socket) -> bytes:
-    """
-    Lee una petición HTTP completa del client socket:
-    - Lee solamente los headers.
-    - Si hay Content-Length, lee exactamente ese cuerpo.
-    """
     head = recv_until(client_sock, b"\r\n\r\n")
     if not head:
         return b""
-
-    # Intentar obtener Content-Length
-    header_text = head.decode()  
+    header_text = head.decode("latin1")
     headers_part = header_text.split("\r\n\r\n", 1)[0]
     content_length = 0
     for line in headers_part.split("\r\n")[1:]:
-        if line.startswith("content-length:"):
-            try:
-                content_length = int(line.split(":", 1)[1].strip())
-            except ValueError:
-                content_length = 0
+        if line.lower().startswith("content-length:"):
+            v = line.split(":", 1)[1].strip()
+            if v.isdigit():
+                content_length = int(v)
             break
-
     body = b""
     if content_length > 0:
         body = recv_exact(client_sock, content_length)
-
     return head + body
 
 def read_http_response_bytes(upstream_sock: socket.socket) -> bytes:
-    """
-    Lee una respuesta HTTP:
-    - Lee hasta CRLFCRLF.
-    - Si hay Content-Length, lee exactamente ese cuerpo.
-    - Si no hay, lee hasta que el servidor cierre (sirve porque tu server.py
-      manda 'Connection: close').
-    """
     head = recv_until(upstream_sock, b"\r\n\r\n")
     if not head:
         return b""
-
     header_text = head.decode("latin1")
     headers_part = header_text.split("\r\n\r\n", 1)[0]
     content_length = None
     for line in headers_part.split("\r\n")[1:]:
         if line.lower().startswith("content-length:"):
-            try:
-                content_length = int(line.split(":", 1)[1].strip())
-            except ValueError:
-                content_length = 0
+            v = line.split(":", 1)[1].strip()
+            if v.isdigit():
+                content_length = int(v)
             break
-
     body = b""
     if content_length is None:
-        # Leer hasta cierre de conexión
         while True:
             chunk = upstream_sock.recv(4096)
             if not chunk:
@@ -123,83 +93,136 @@ def read_http_response_bytes(upstream_sock: socket.socket) -> bytes:
             body += chunk
     else:
         body = recv_exact(upstream_sock, content_length)
-
     return head + body
 
 # -----------------------------------------------------------
-# PROXY (estructura similar al server.py de la Parte 1)
+# Helpers de proxy HTTP (mínimos)
+# -----------------------------------------------------------
+
+def header_get(headers_dict, name):
+    for k, v in headers_dict.items():
+        if k.lower() == name.lower():
+            return v
+    return None
+
+def header_del(headers_dict, name):
+    target = None
+    for k in list(headers_dict.keys()):
+        if k.lower() == name.lower():
+            target = k
+            break
+    if target is not None:
+        del headers_dict[target]
+
+def to_origin_form_and_target(request_bytes):
+    # Convierte absolute-form -> origin-form y obtiene (host, port)
+    text = request_bytes.decode("latin1")
+    head, sep, body = text.partition("\r\n\r\n")
+    lines = head.split("\r\n")
+    start = lines[0]
+
+    parsed = parse_HTTP_message(text)
+    headers = parsed["headers"]
+
+    parts = start.split(" ")
+    method = parts[0] if len(parts) > 0 else "GET"
+    target = parts[1] if len(parts) > 1 else "/"
+    version = parts[2] if len(parts) > 2 else "HTTP/1.1"
+
+    host = ""
+    port = 80
+    if target.startswith("http://"):
+        rest = target[7:]
+        s = rest.find("/")
+        hostport = rest if s == -1 else rest[:s]
+        path = "/" if s == -1 else rest[s:]
+        if ":" in hostport:
+            host, p = hostport.split(":", 1)
+            if p.isdigit():
+                port = int(p)
+        else:
+            host = hostport
+        target = path
+        if header_get(headers, "Host") is None:
+            headers["Host"] = host if port == 80 else f"{host}:{port}"
+    else:
+        # origin-form ya; usa Host
+        host_hdr = header_get(headers, "Host")
+        if host_hdr:
+            hv = host_hdr.strip()
+            if ":" in hv:
+                host, p = hv.split(":", 1)
+                if p.isdigit():
+                    port = int(p)
+            else:
+                host = hv
+        if not target.startswith("/"):
+            target = "/"
+
+    # Quitar Proxy-Connection y forzar Connection: close (simpleza)
+    header_del(headers, "Proxy-Connection")
+    saw_connection = False
+    for k in list(headers.keys()):
+        if k.lower() == "connection":
+            headers[k] = "close"
+            saw_connection = True
+    if not saw_connection:
+        headers["Connection"] = "close"
+
+    new_start = f"{method} {target} {version}"
+    new_parsed = {"start_line": new_start, "headers": headers, "body": body}
+    new_bytes = create_HTTP_message(new_parsed).encode("latin1")
+    return new_bytes, host, port
+
+# -----------------------------------------------------------
+# PROXY HTTP genérico mínimo (para curl -x localhost:8000)
 # -----------------------------------------------------------
 
 if __name__ == "__main__":
-    # (Opcional) archivo JSON, por similitud con tu server.py
-    # No lo usamos para la lógica del proxy, pero lo dejamos para mantener estructura.
-    if len(sys.argv) >= 2 and sys.argv[1].endswith(".json"):
-        config_file = sys.argv[1]
-        with open(config_file, "r") as f:
-            config = json.load(f)
-    else:
-        config = {}
+    # (Opcional) JSON, mantenido por simetría con tu server.py
+    # if len(sys.argv) >= 2 and sys.argv[1].endswith(".json"):
+    #     with open(sys.argv[1], "r") as f:
+    #         config = json.load(f)
+    # else:
+    #     config = {}
 
-    # Dónde escucha el PROXY (cliente se conecta aquí)
-    proxy_address = ("localhost", 8080)
+    proxy_address = ("localhost", 8000)  # el test usa -x localhost:8000
 
-    # Dónde está el servidor real (tu server.py de la parte 1)
-    upstream_address = ("localhost", 8000)
-
-    print("Creando socket - PROXY")
+    print("Creando socket - PROXY HTTP")
     proxy_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    #proxy_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # proxy_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # opcional
     proxy_socket.bind(proxy_address)
-    proxy_socket.listen(3)
+    proxy_socket.listen(20)
 
-    print(f"Proxy escuchando en http://{proxy_address[0]}:{proxy_address[1]}")
-    print(f"Reenviando al servidor real en {upstream_address[0]}:{upstream_address[1]}")
+    print(f"Proxy HTTP escuchando en http://{proxy_address[0]}:{proxy_address[1]}")
     print()
 
     while True:
         client_sock, client_addr = proxy_socket.accept()
         print(f"[PROXY] Cliente conectado: {client_addr}")
 
-        # 1) Leer request completo del cliente (headers + body si hay)
-        request_bytes = read_http_request_bytes(client_sock)
-        if not request_bytes:
+        raw_req = read_http_request_bytes(client_sock)
+        if not raw_req:
             client_sock.close()
             print(f"[PROXY] (vacío) conexión cerrada: {client_addr}")
             continue
 
-        # (Opcional) mostrar parseo del request para debug, manteniendo tu estilo
-        try:
-            parsed_req = parse_HTTP_message(request_bytes.decode("latin1"))
-            print("=== Request (parseado en el PROXY) ===")
-            print(parsed_req)
-            print()
-        except Exception:
-            pass  # si falla el decode, no importa: el proxy sólo reenvía bytes
+        # --- Opcional: ver request original ---
+        # print(raw_req.decode("latin1"))
 
-        # 2) Conectar con el servidor real
+        new_req, dst_host, dst_port = to_origin_form_and_target(raw_req)
+        if not dst_host:
+            client_sock.close()
+            print(f"[PROXY] (sin host) conexión cerrada: {client_addr}")
+            continue
+
         upstream_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        upstream_sock.connect(upstream_address)
+        upstream_sock.connect((dst_host, dst_port))
+        upstream_sock.sendall(new_req)
 
-        # 3) Enviar request al servidor real
-        upstream_sock.sendall(request_bytes)
+        resp = read_http_response_bytes(upstream_sock)
+        client_sock.sendall(resp)
 
-        # 4) Recibir respuesta completa del servidor real
-        response_bytes = read_http_response_bytes(upstream_sock)
-
-        # (Opcional) mostrar parseo de la respuesta
-        try:
-            parsed_resp = parse_HTTP_message(response_bytes.decode("latin1"))
-            print("=== Response (parseada en el PROXY) ===")
-            print(parsed_resp["start_line"])
-            print(parsed_resp["headers"])
-            print()
-        except Exception:
-            pass
-
-        # 5) Reenviar respuesta al cliente tal cual
-        client_sock.sendall(response_bytes)
-
-        # 6) Cerrar ambos lados de esta vuelta
         upstream_sock.close()
         client_sock.close()
         print(f"[PROXY] Conexión con {client_addr} finalizada\n")
