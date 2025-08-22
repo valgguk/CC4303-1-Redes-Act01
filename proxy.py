@@ -164,6 +164,8 @@ if __name__ == "__main__":
         # 3) Conectar al servidor real
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.connect((target_host, target_port))
+        print(f"[PROXY] Conectado al servidor real: {target_host}:{target_port}")
+        print("=== Reenviando solicitud al servidor real ===")
 
         # 4) Reenviar solicitud al servidor real
         server_socket.sendall(client_request)
@@ -175,7 +177,9 @@ if __name__ == "__main__":
             if not chunk:
                 break
             server_response += chunk
-
+        print("=== Respuesta recibida del servidor real ===")
+        print(server_response.decode("utf-8", errors="replace"))
+        print("=== Reenviando respuesta al cliente ===")
         # 6) Reenviar respuesta al cliente
         client_socket.sendall(server_response)
 
