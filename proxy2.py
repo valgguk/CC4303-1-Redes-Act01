@@ -1,5 +1,6 @@
 import socket
 import datetime
+import select
 import json
 import sys
 from urllib.parse import urlparse
@@ -195,7 +196,7 @@ def build_403_response():
 <body>
     <h1>😾 Acceso Denegado</h1>
     <p>Este sitio ha sido bloqueado por el proxy.</p>
-    <img src="https://http.cat/images/403.jpg" alt="gato bloqueado" width="300">
+    <img src="/gato.jpg" alt="gato bloqueado" width="300">
 </body>
 </html>"""
 
@@ -212,6 +213,22 @@ def build_403_response():
         "\r\n"
     )
 
+    return headers.encode("utf-8") + body_bytes
+
+def build_image_response(image_path):
+    #leer la imagen como binario
+    with open(image_path, "rb") as img_file:
+        body_bytes = img_file.read()
+    date_str = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+    headers = (
+        "HTTP/1.1 200 OK\r\n"
+        "Server: PythonSocket/0.1\r\n"
+        f"Date: {date_str}\r\n"
+        "Content-Type: image/jpeg\r\n"
+        f"Content-Length: {len(body_bytes)}\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    )
     return headers.encode("utf-8") + body_bytes
 
 def receive_http_message(sock, buffer_size=50):
@@ -272,6 +289,13 @@ if __name__ == "__main__":
         print(parsed["start_line"])
         print(parsed["headers"])
 
+        # Filtrado de HTTPS (CONNECT)
+        if parsed["start_line"].startswith("CONNECT"):
+            print(f"[PROXY] 🔒 Túnel HTTPS establecido: {client_address}")
+            client_socket.sendall(build_403_response())
+            client_socket.close()
+            continue
+
         # Obtener la URI completa de la start_line (ej: GET http://example.com/index.html HTTP/1.1)
         uri = parsed["start_line"].split(" ")[1]
 
@@ -289,7 +313,11 @@ if __name__ == "__main__":
                 path = urlparse(uri).path
             else:
                 path = uri
-            if path == "/case1":
+            if path == "/gato.jpg":
+                client_socket.sendall(build_image_response("gato.jpg"))
+                client_socket.close()
+                continue
+            elif path == "/case1":
                 client_socket.sendall(build_case1_response(nombre_usuario))
                 client_socket.close()
                 continue
