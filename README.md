@@ -24,4 +24,54 @@ Para evitarlo, usa la opción `--noproxy`:
 
 ```bash
 curl -i --noproxy localhost http://localhost:8000
+```
+
+## Pruebas para garantizar todos los puntos de la tarea en curl 
+
+```bash
+curl -i http://localhost/build -x localhost:8000
+```
+
+```bash
+curl -i http://localhost/case1 -x localhost:8000
+```
+
+```bash
+curl -i http://localhost/case2 -x localhost:8000
+```
+
+```bash
+curl http://cc4303.bachmann.cl/ -x localhost:8000
+```
+
+```bash
+curl http://cc4303.bachmann.cl/secret -x localhost:8000
+```
+
+```bash
+curl -i http://www.dcc.uchile.cl/ -x localhost:8000
+```
+
+```bash
+curl http://cc4303.bachmann.cl/replace -x localhost:8000
+```
+
+
+### Manejo de sitios bloqueados y errores de conexión - Resumir para el informe ! 😃
+
+El proxy fue diseñado para soportar únicamente **HTTP**, no HTTPS, por requerimiento del proyecto. Muchas páginas modernas (como `www.dcc.uchile.cl`) redirigen automáticamente de HTTP a HTTPS, lo que puede causar errores si el proxy intenta establecer la conexión.
+
+Para manejar estos casos y asegurar estabilidad, se tomaron las siguientes decisiones de diseño:
+
+1. **Detección de HTTPS**  
+   - Si la solicitud del cliente utiliza el método `CONNECT` (indicativo de HTTPS), el proxy inmediatamente responde con un código `403 Forbidden`.
+   - Esto evita que el proxy intente establecer un túnel HTTPS, que no está soportado.
+
+2. **Manejo de redirecciones y hosts inaccesibles**  
+   - Cuando el proxy intenta conectarse a un servidor HTTP real, se envuelve la conexión en un bloque `try-except` para capturar errores de DNS o problemas de resolución de hostname.
+   - Si ocurre un error, el proxy devuelve un `403 Forbidden` al cliente en lugar de cerrarse inesperadamente.
+   - Esto asegura que el proxy nunca se caiga por solicitudes a páginas que automáticamente redirigen a HTTPS o cuyos hostnames no existen.
+
+Esta estrategia garantiza que el proxy cumpla con los requerimientos del proyecto, proporcionando bloqueo efectivo de sitios y palabras prohibidas, manteniendo la estabilidad del servidor en todo momento.
+
 

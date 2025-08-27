@@ -3,7 +3,7 @@ import datetime
 import select
 import json
 import sys
-from urllib.parse import urlparse
+#from urllib.parse import urlparse
 
 # Servidor HTTP : recibe mensajes de tipo HTTP (interpretar HEAD + BODY HTTP)
 
@@ -308,11 +308,14 @@ if __name__ == "__main__":
                 client_socket.close()
                 break
         else:
-            # Casos de prueba controlados para parte 5
+            # Casos de prueba controlados para parte 5 sin usar urlparse
             if uri.startswith("http://") or uri.startswith("https://"):
-                path = urlparse(uri).path
+                path = "/" + uri.split("/", 3)[-1] #toma lo que viene después del dominio
+                if "?" in path:
+                    path = path.split("?")[0]
             else:
                 path = uri
+
             if path == "/gato.jpg":
                 client_socket.sendall(build_image_response("gato.jpg"))
                 client_socket.close()
@@ -337,9 +340,15 @@ if __name__ == "__main__":
 
             # 3) Conectar al servidor real
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_socket.connect((target_host, target_port))
-            print(f"[PROXY] Conectado al servidor real: {target_host}:{target_port}")
-            print("=== Reenviando solicitud al servidor real ===")
+            try:
+                server_socket.connect((target_host, target_port))
+                print(f"[PROXY] Conectado al servidor real: {target_host}:{target_port}")
+                print("=== Reenviando solicitud al servidor real ===")
+            except socket.gaierror as e:
+                print(f"[PROXY] Error de conexión: {e}")
+                client_socket.sendall(build_403_response())
+                client_socket.close()
+                continue
 
             # 4) Reenviar solicitud al servidor real
             # server_socket.sendall(client_request)
