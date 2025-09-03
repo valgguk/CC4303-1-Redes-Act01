@@ -1,9 +1,7 @@
 import socket
 import datetime
-import select
 import json
 import sys
-#from urllib.parse import urlparse
 
 # Servidor HTTP : recibe mensajes de tipo HTTP (interpretar HEAD + BODY HTTP)
 
@@ -82,68 +80,6 @@ def build_http_response(username):
     return headers.encode("utf-8") + body_bytes
 
 
-def build_case1_response(username):
-    body = """<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Caso 1</title>
-</head>
-<body>
-    <p>Este body es suficientemente largo para forzar múltiples llamadas a recv(50). El proxy debe acumular hasta llegar a Content-Length.</p>
-</body>
-</html>"""
-
-    body_bytes = body.encode("utf-8")
-    date_str = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
-
-    headers = (
-        "HTTP/1.1 200 OK\r\n"
-        "Server: PythonSocket/0.1\r\n"
-        f"Date: {date_str}\r\n"
-        "Content-Type: text/html; charset=utf-8\r\n"
-        f"Content-Length: {len(body_bytes)}\r\n"
-        "Connection: close\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
-        f"X-ElQuePregunta: {username}\r\n"
-        "\r\n"
-    )
-
-    return headers.encode("utf-8") + body_bytes
-
-
-def build_case2_response(username):
-    body = """<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Caso 2</title>
-</head>
-<body>
-    <p>Body corto, pero headers inflados para romper el buffer de 50.</p>
-</body>
-</html>"""
-
-    body_bytes = body.encode("utf-8")
-    date_str = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
-
-    
-    long_header = "X-Proxy-Test: " + ("A" * 80) + "\r\n"
-
-    headers = (
-        "HTTP/1.1 200 OK\r\n"
-        "Server: PythonSocket/0.1\r\n"
-        f"Date: {date_str}\r\n"
-        "Content-Type: text/html; charset=utf-8\r\n"
-        f"Content-Length: {len(body_bytes)}\r\n"
-        "Connection: close\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
-        f"X-ElQuePregunta: {username}\r\n"
-        f"{long_header}"
-        "\r\n"
-    )
-
-    return headers.encode("utf-8") + body_bytes
 
 
 # --- funciones inspiradas en act no evaluada INSPIRACION ❗
@@ -196,7 +132,7 @@ def build_403_response():
 <body>
     <h1>😾 Acceso Denegado</h1>
     <p>Este sitio ha sido bloqueado por el proxy.</p>
-    <img src="/gato.jpg" alt="gato bloqueado" width="300">
+    <img src="https://http.cat/images/403.jpg" alt="gato bloqueado" width="300">
 </body>
 </html>"""
 
@@ -215,50 +151,6 @@ def build_403_response():
 
     return headers.encode("utf-8") + body_bytes
 
-def build_image_response(image_path):
-    #leer la imagen como binario
-    with open(image_path, "rb") as img_file:
-        body_bytes = img_file.read()
-    date_str = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
-    headers = (
-        "HTTP/1.1 200 OK\r\n"
-        "Server: PythonSocket/0.1\r\n"
-        f"Date: {date_str}\r\n"
-        "Content-Type: image/jpeg\r\n"
-        f"Content-Length: {len(body_bytes)}\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-    )
-    return headers.encode("utf-8") + body_bytes
-
-def receive_http_message(sock, buffer_size=50):
-    data = b""
-    headers_terminator = b"\r\n\r\n"
-
-    # 1) Recibir hasta obtener todos los headers
-    while headers_terminator not in data:
-        chunk = sock.recv(buffer_size)
-        if not chunk:
-            break
-        data += chunk
-
-    header_data, _, body_data = data.partition(headers_terminator)
-    headers_text = header_data.decode("utf-8", errors="replace")
-    parsed = parse_HTTP_message(headers_text + "\r\n")
-
-    content_length = int(parsed["headers"].get("Content-Length", 0))
-    current_body_length = len(body_data)
-
-    # 2) Leer hasta completar el body (si es necesario)
-    while current_body_length < content_length:
-        chunk = sock.recv(buffer_size)
-        if not chunk:
-            break
-        body_data += chunk
-        current_body_length += len(chunk)
-
-    full_message = header_data + headers_terminator + body_data
-    return full_message.decode("utf-8", errors="replace")
 
 # --- PROXY ---
 if __name__ == "__main__":
@@ -283,18 +175,19 @@ if __name__ == "__main__":
         client_socket, client_address = proxy_socket.accept()
         print(f"[PROXY] Cliente conectado: {client_address}")
 
-        request_text = receive_http_message(client_socket, buffer_size=50)
+        # 1) Leer solicitud del cliente
+        client_request = b""
+        while True:
+            chunk = client_socket.recv(4096)
+            client_request += chunk
+            if len(chunk) < 4096:
+                break
+
+        request_text = client_request.decode("utf-8", errors="replace")
         parsed = parse_HTTP_message(request_text)
         print("=== Request parseado ===")
         print(parsed["start_line"])
         print(parsed["headers"])
-
-        # Filtrado de HTTPS (CONNECT)
-        if parsed["start_line"].startswith("CONNECT"):
-            print(f"[PROXY] 🔒 Túnel HTTPS establecido: {client_address}")
-            client_socket.sendall(build_403_response())
-            client_socket.close()
-            continue
 
         # Obtener la URI completa de la start_line (ej: GET http://example.com/index.html HTTP/1.1)
         uri = parsed["start_line"].split(" ")[1]
@@ -308,47 +201,17 @@ if __name__ == "__main__":
                 client_socket.close()
                 break
         else:
-            # Casos de prueba controlados para parte 5 sin usar urlparse
-            if uri.startswith("http://") or uri.startswith("https://"):
-                path = "/" + uri.split("/", 3)[-1] #toma lo que viene después del dominio
-                if "?" in path:
-                    path = path.split("?")[0]
-            else:
-                path = uri
-
-            if path == "/gato.jpg":
-                client_socket.sendall(build_image_response("gato.jpg"))
-                client_socket.close()
-                continue
-            elif path == "/case1":
-                client_socket.sendall(build_case1_response(nombre_usuario))
-                client_socket.close()
-                continue
-            elif path == "/case2":
-                client_socket.sendall(build_case2_response(nombre_usuario))
-                client_socket.close()
-                continue
-            elif path.startswith("/build"):
-                client_socket.sendall(build_http_response(nombre_usuario))
-                client_socket.close()
-                continue
-
-
             # 2) Obtener host real desde los headers
             target_host = parsed["headers"].get("Host", "")
             target_port = 80
 
+            
+
             # 3) Conectar al servidor real
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                server_socket.connect((target_host, target_port))
-                print(f"[PROXY] Conectado al servidor real: {target_host}:{target_port}")
-                print("=== Reenviando solicitud al servidor real ===")
-            except socket.gaierror as e:
-                print(f"[PROXY] Error de conexión: {e}")
-                client_socket.sendall(build_403_response())
-                client_socket.close()
-                continue
+            server_socket.connect((target_host, target_port))
+            print(f"[PROXY] Conectado al servidor real: {target_host}:{target_port}")
+            print("=== Reenviando solicitud al servidor real ===")
 
             # 4) Reenviar solicitud al servidor real
             # server_socket.sendall(client_request)
@@ -359,34 +222,16 @@ if __name__ == "__main__":
             # Reenviar la solicitud modificada al servidor real
             server_socket.sendall(updated_request)
 
-            # # 5) Leer respuesta del servidor real
-            # server_response = b""
-            # while True:
-            #     chunk = server_socket.recv(4096)
-            #     if not chunk:
-            #         break
-            #     server_response += chunk
-            # print("=== Respuesta recibida del servidor real ===")
-            # print(server_response.decode("utf-8", errors="replace"))
-            # print("=== Reenviando respuesta al cliente ===")
-                        
-            # Decodificar sin try (asumiendo UTF-8), y continuar con reemplazo
-            response_text = receive_http_message(server_socket, buffer_size=50)
-
-            # Reemplazar palabras prohibidas
-            for pair in forbidden_words:
-                for palabra, reemplazo in pair.items():
-                    response_text = response_text.replace(palabra, reemplazo)
-
-            # Recalcular Content-Length si está presente
-            parsed_response = parse_HTTP_message(response_text)
-            if "Content-Length" in parsed_response["headers"]:
-                parsed_response["headers"]["Content-Length"] = str(len(parsed_response["body"].encode("utf-8")))
-                response_text = create_HTTP_message(parsed_response)
-
-            # Codificar nuevamente
-            server_response = response_text.encode("utf-8")
-            
+            # 5) Leer respuesta del servidor real
+            server_response = b""
+            while True:
+                chunk = server_socket.recv(4096)
+                if not chunk:
+                    break
+                server_response += chunk
+            print("=== Respuesta recibida del servidor real ===")
+            print(server_response.decode("utf-8", errors="replace"))
+            print("=== Reenviando respuesta al cliente ===")
             # 6) Reenviar respuesta al cliente
             client_socket.sendall(server_response)
 
