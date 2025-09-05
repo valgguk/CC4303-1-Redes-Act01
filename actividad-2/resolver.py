@@ -99,6 +99,15 @@ def resolver(mensaje_consulta):
 
     # i.- Si encuentra una respuesta tipo A, entonces envíe la query del paso a) a la primera dirección IP contenida en la sección Additional.
     # ii.- En caso de no encontrar alguna IP en la sección Additional, tome el nombre de un Name Server desde la sección Authority y use recursivamente su función para resolver la IP asociada al nombre de dominio del Name Server. Una vez obtenga la IP del Name Server, envíe la query obtenida en el paso a) a dicha IP. Una vez recibida la respuesta, vuelva al paso b).
+# Función para setear el bit RA en la respuesta DNS
+# De esta forma indicamos que el resolver puede hacer consultas recursivas
+def set_ra_bit(dns_response_bytes):
+    # Convertimos a bytearray mutable
+    response = bytearray(dns_response_bytes)
+    # Seteamos el bit RA (bit 7 del byte 3)
+    response[3] |= 0b10000000  # o 0x80
+    return bytes(response)
+
 
 ROOT_SERVER_ADDRESS = "192.33.4.12"
 ROOT_SERVER_PORT = 53
@@ -144,6 +153,7 @@ if __name__ == "__main__":
         response = resolver(request_test)
         # Si se logró resolver, se envía al cliente
         if response:
+            response = set_ra_bit(response) # Seteamos el bit RA en la respuesta
             server_socket.sendto(response, addr)
             print(f"[✓] Respuesta enviada a {addr}")
         else:
