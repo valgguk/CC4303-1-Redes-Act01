@@ -29,7 +29,7 @@ def parse_dns_message(raw_data):
 
 if __name__ == "__main__":
     # definimos el tamaño del buffer de recepción y la secuencia de fin de mensaje
-    buff_size = 5000 #????
+    buff_size = 512 #????
     end_of_message = "\n"
 
     new_socket_address = ('localhost', 8000)
