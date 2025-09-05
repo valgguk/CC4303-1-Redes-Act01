@@ -47,7 +47,7 @@ def resolver(mensaje_consulta):
     # Enviamos el mensaje al servidor raíz
     new_socket.sendto(mensaje_consulta, (ROOT_SERVER_ADDRESS, ROOT_SERVER_PORT))
     # Esperamos la respuesta del servidor raíz
-    data, addr = new_socket.recvfrom(512) # buffer de 512 bytes
+    data, addr = new_socket.recvfrom(buff_size) # buffer de 4096 bytes
     # Parseamos el mensaje recibido
     mensaje_recv = parse_dns_message(data)
     # Cerramos el socket
@@ -105,7 +105,7 @@ ROOT_SERVER_PORT = 53
 
 if __name__ == "__main__":
     # definimos el tamaño del buffer de recepción y la secuencia de fin de mensaje
-    buff_size = 512 #????
+    buff_size = 4096 #????
     end_of_message = "\n"
 
     new_socket_address = ('localhost', 8000)
@@ -114,13 +114,13 @@ if __name__ == "__main__":
     # armamos el socket
     # los parámetros que recibe el socket indican el tipo de conexión
     # socket.SOCK_STREAM = socket NO orientado a conexión
-    socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     
 
     # le indicamos al server socket que debe atender peticiones en la dirección address
     # para ello usamos bind
-    socket.bind(new_socket_address)
+    server_socket.bind(new_socket_address)
 
     # luego con listen (función de sockets de python) le decimos que puede
     # tener hasta 3 peticiones de conexión encoladas
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     print()
     while True:
 
-        request_test, addr = socket.recvfrom(buff_size)
+        request_test, addr = server_socket.recvfrom(buff_size)
         print("Mensaje recibido: ", request_test)
         print("Dirección del cliente: ", addr)
 
@@ -144,16 +144,16 @@ if __name__ == "__main__":
         response = resolver(request_test)
         # Si se logró resolver, se envía al cliente
         if response:
-            socket.sendto(response, addr)
+            server_socket.sendto(response, addr)
             print(f"[✓] Respuesta enviada a {addr}")
         else:
             print("[X] No se pudo resolver la consulta.")
 
-        # cerramos la conexión
-        socket.close()
+        # No cerramos el socket aquí para poder seguir recibiendo consultas
+        # server_socket.close()
         # notar que la dirección que se imprime indica un número de puerto distinto al 5000
         print("\n\n") 
-        print(f"conexión con {new_socket_address} ha sido cerrada")
+        print(f"Consulta procesada para {addr}")
 
         # seguimos esperando por si llegan otras conexiones
 
