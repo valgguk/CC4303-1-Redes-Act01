@@ -44,12 +44,15 @@ def resolver(mensaje_consulta):
     # La dirección del servidor raíz es la siguiente: 192.33.4.12 y el puerto es el correspondiente 
     # a servidores DNS.
     new_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # Enviamos el mensaje al servidor raíz
+   # Enviamos el mensaje al servidor raíz
     new_socket.sendto(mensaje_consulta, (ROOT_SERVER_ADDRESS, ROOT_SERVER_PORT))
     # Esperamos la respuesta del servidor raíz
     data, addr = new_socket.recvfrom(buff_size) # buffer de 4096 bytes
     # Parseamos el mensaje recibido
     mensaje_recv = parse_dns_message(data)
+    dominio = mensaje_recv["QNAME"].rstrip('.')
+    print(f"(debug) Consultando '{dominio}' a '.' con dirección IP '{ROOT_SERVER_ADDRESS}'")
+
     # Cerramos el socket
     # new_socket.close()
     #b.- Si el mensaje answer recibido tiene la respuesta a la consulta, es decir, 
@@ -68,6 +71,7 @@ def resolver(mensaje_consulta):
             # Check Additional section for A records
             for additional_rr in mensaje_recv.get("Additional", []):
                 if " A " in additional_rr:
+                    print(f"(debug) Consultando '{dominio}' a '{auth_rr.split()[-1]}' con dirección IP '{ip}'")
                     # Obtenemos la IP de la sección Additional 
                     ip = additional_rr.split()[-1]
                     # Enviamos la query al Name Server con la IP obtenida
@@ -83,6 +87,7 @@ def resolver(mensaje_consulta):
             parsed_response = parse_dns_message(ip_response)
             for rr_str in parsed_response.get("Answers", []):
                 if " A " in rr_str:
+                    print(f"(debug) Consultando '{dominio}' a '{ns_name}' con dirección IP '{ip}'")
                     ip = rr_str.split()[-1]
                     print(f"[->] Redirigiendo a {ip} (resuelto recursivamente)")
                     return resolver_redirigido(ip, mensaje_consulta)
