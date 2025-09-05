@@ -141,10 +141,19 @@ if __name__ == "__main__":
         for key, value in parsed.items():
             print(f"{key}: {value}")
 
+        response = resolver(request_test)
+        # Si se logró resolver, se envía al cliente
+        if response:
+            socket.sendto(response, addr)
+            print(f"[✓] Respuesta enviada a {addr}")
+        else:
+            print("[X] No se pudo resolver la consulta.")
+
         # cerramos la conexión
+        socket.close()
         # notar que la dirección que se imprime indica un número de puerto distinto al 5000
         print("\n\n") 
-        print(f"conexión con {addr} ha sido cerrada")
+        print(f"conexión con {new_socket_address} ha sido cerrada")
 
         # seguimos esperando por si llegan otras conexiones
 
