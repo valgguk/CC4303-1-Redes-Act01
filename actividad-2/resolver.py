@@ -28,21 +28,49 @@ def parse_dns_message(raw_data):
 
     return parsed
 
+def actualizar_cache(dominio, data):
+    ultimas_20_consultas.append(dominio)
+    if len(ultimas_20_consultas) > 20:
+        ultimas_20_consultas.pop(0)
+
+    conteo = {}
+    for dom in ultimas_20_consultas:
+        conteo[dom] = conteo.get(dom, 0) + 1
+
+    top3 = sorted(conteo.items(), key=lambda item: item[1], reverse=True)[:3]
+    cache_frecuentes.clear()
+    for dom, _ in top3:
+        cache_frecuentes[dom] = data
+
+
 def resolver_redirigido(ip_destino, mensaje_consulta):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(5)
     sock.sendto(mensaje_consulta, (ip_destino, ROOT_SERVER_PORT))
-    data, _ = sock.recvfrom(512)
+    data, _ = sock.recvfrom(buff_size)
     sock.close()
+    # ⚠️ Agrega esto:
+    dns_query = DNSRecord.parse(mensaje_consulta)
+    dominio = str(dns_query.q.qname).rstrip('.')
+    actualizar_cache(dominio, data)
     return data
     
-
 #recibe el mensaje de query en bytes obtenido desde el cliente
 def resolver(mensaje_consulta):
     # a.- Envíe el mensaje query al servidor raíz de DNS y espere su respuesta. 
     # Se recomienda dejar la IP del servidor raíz en una variable global de su programa. 
     # La dirección del servidor raíz es la siguiente: 192.33.4.12 y el puerto es el correspondiente 
     # a servidores DNS.
+    # Parseamos la consulta para obtener el dominio
+    dns_query = DNSRecord.parse(mensaje_consulta)
+    dominio = str(dns_query.q.qname).rstrip('.')
+
+    # 🟡 Verificar si está en caché ANTES de consultar servidores DNS
+    if dominio in cache_frecuentes:
+        print(f"(debug) [CACHÉ] Respondiendo '{dominio}' desde caché")
+        return cache_frecuentes[dominio]
+    
+    print(f"(debug) Consultando '{dominio}' a '.' con dirección IP '{ROOT_SERVER_ADDRESS}'")
     new_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
    # Enviamos el mensaje al servidor raíz
     new_socket.sendto(mensaje_consulta, (ROOT_SERVER_ADDRESS, ROOT_SERVER_PORT))
@@ -50,9 +78,12 @@ def resolver(mensaje_consulta):
     data, addr = new_socket.recvfrom(buff_size) # buffer de 4096 bytes
     # Parseamos el mensaje recibido
     mensaje_recv = parse_dns_message(data)
-    dominio = mensaje_recv["QNAME"].rstrip('.')
-    print(f"(debug) Consultando '{dominio}' a '.' con dirección IP '{ROOT_SERVER_ADDRESS}'")
-
+    # dominio = mensaje_recv["QNAME"].rstrip('.')
+    # print(f"(debug) Consultando '{dominio}' a '.' con dirección IP '{ROOT_SERVER_ADDRESS}'")
+    # # Verificar si está en caché
+    # if dominio in cache_frecuentes:
+    #     print(f"(debug) [CACHÉ] Respondiendo '{dominio}' desde caché")
+    #     return cache_frecuentes[dominio]
     # Cerramos el socket
     # new_socket.close()
     #b.- Si el mensaje answer recibido tiene la respuesta a la consulta, es decir, 
@@ -60,6 +91,8 @@ def resolver(mensaje_consulta):
     # entonces simplemente haga que su función retorne el mensaje recibido.
     for rr_str in mensaje_recv.get("Answers", []):
         if " A " in rr_str:
+            # Agregar dominio a la lista de últimas consultas (máx 20)
+            actualizar_cache(dominio, data)
             return data # Retornamos el mensaje recibido si tiene respuesta de tipo A
 
     #c.- Si la respuesta recibida corresponde a una delegación a otro Name Server, es decir, 
@@ -71,11 +104,11 @@ def resolver(mensaje_consulta):
             # Check Additional section for A records
             for additional_rr in mensaje_recv.get("Additional", []):
                 if " A " in additional_rr:
-                    print(f"(debug) Consultando '{dominio}' a '{auth_rr.split()[-1]}' con dirección IP '{ip}'")
                     # Obtenemos la IP de la sección Additional 
                     ip = additional_rr.split()[-1]
+                    print(f"(debug) Consultando '{dominio}' a '{auth_rr.split()[-1]}' con dirección IP '{ip}'")
                     # Enviamos la query al Name Server con la IP obtenida
-                    print(f"[->] Redirigiendo a {ip} (glue record)")
+                    #print(f"[->] Redirigiendo a {ip} (glue record)")
                     return resolver_redirigido(ip, mensaje_consulta)
                     # return resolver(data)?
             # Si no encontramos una IP en Additional
@@ -87,9 +120,9 @@ def resolver(mensaje_consulta):
             parsed_response = parse_dns_message(ip_response)
             for rr_str in parsed_response.get("Answers", []):
                 if " A " in rr_str:
-                    print(f"(debug) Consultando '{dominio}' a '{ns_name}' con dirección IP '{ip}'")
                     ip = rr_str.split()[-1]
-                    print(f"[->] Redirigiendo a {ip} (resuelto recursivamente)")
+                    print(f"(debug) Consultando '{dominio}' a '{ns_name}' con dirección IP '{ip}'")
+                    #print(f"[->] Redirigiendo a {ip} (resuelto recursivamente)")
                     return resolver_redirigido(ip, mensaje_consulta)
             # d. Si recibe algún otro tipo de respuesta simplemente ignórela.
             print("[X] No se pudo resolver la consulta: sin respuesta útil.")
@@ -113,9 +146,20 @@ def set_ra_bit(dns_response_bytes):
     response[3] |= 0b10000000  # o 0x80
     return bytes(response)
 
+def reemplazar_id_respuesta(original_query_bytes, response_bytes):
+    original_id = original_query_bytes[:2]  # Primeros 2 bytes = Transaction ID
+    response = bytearray(response_bytes)
+    response[0:2] = original_id             # Sobrescribimos el ID en la respuesta
+    return bytes(response)
 
 ROOT_SERVER_ADDRESS = "192.33.4.12"
 ROOT_SERVER_PORT = 53
+
+# Lista simple para guardar las últimas 20 consultas
+ultimas_20_consultas = []
+
+# Diccionario que almacenará las respuestas DNS en caché (solo para los 3 dominios más frecuentes)
+cache_frecuentes = {}
 
 if __name__ == "__main__":
     # definimos el tamaño del buffer de recepción y la secuencia de fin de mensaje
@@ -159,6 +203,7 @@ if __name__ == "__main__":
         # Si se logró resolver, se envía al cliente
         if response:
             response = set_ra_bit(response) # Seteamos el bit RA en la respuesta
+            response = reemplazar_id_respuesta(request_test, response)
             server_socket.sendto(response, addr)
             print(f"[✓] Respuesta enviada a {addr}")
         else:
