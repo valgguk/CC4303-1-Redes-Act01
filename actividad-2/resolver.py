@@ -6,14 +6,6 @@ import sys
 
 
 if __name__ == "__main__":
-    # Manejo archivos Json
-    if len(sys.argv) < 2:
-        sys.exit(1)
-    config_file = sys.argv[1]
-    with open(config_file, "r") as f:
-        config = json.load(f)
-    nombre_usuario = config.get("nombre", "Desconocido")
-
     # definimos el tamaño del buffer de recepción y la secuencia de fin de mensaje
     buff_size = 5000 #????
     end_of_message = "\n"
@@ -33,7 +25,6 @@ if __name__ == "__main__":
     # luego con listen (función de sockets de python) le decimos que puede
     # tener hasta 3 peticiones de conexión encoladas
     # si recibiera una 4ta petición de conexión la va a rechazar
-    socket.listen(3)
 
     # nos quedamos esperando a que llegue una petición de conexión
     print('DNS Resolver http://localhost:8000 esperando clientes...')
