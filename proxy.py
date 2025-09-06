@@ -145,8 +145,46 @@ def build_case2_response(username):
 
     return headers.encode("utf-8") + body_bytes
 
+def build_case3_response(username):
+    body = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Caso 3</title>
+</head>
+<body>
+    <p>Este body es suficientemente corto para probar con un buffer de 32 bytes, pero garantiza que el mensaje se visualice correctamente.</p>
+</body>
+</html>"""
 
-# --- funciones inspiradas en act no evaluada INSPIRACION ❗
+    body_bytes = body.encode("utf-8")
+    date_str = datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    headers = (
+        "HTTP/1.1 200 OK\r\n"
+        "Server: PythonSocket/0.1\r\n"
+        f"Date: {date_str}\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        f"Content-Length: {len(body_bytes)}\r\n"
+        "Connection: close\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        f"X-ElQuePregunta: {username}\r\n"
+        "\r\n"
+    )
+
+    return headers.encode("utf-8") + body_bytes
+
+def build_simple_get_request():
+    # Construir el mensaje HTTP básico
+    request_line = "GET / HTTP/1.1\r\n"
+    headers = "Host: example.com\r\n"
+    end_of_headers = "\r\n"
+
+    # Combinar las partes del mensaje
+    http_request = request_line + headers + end_of_headers
+
+    return http_request.encode("utf-8")
+
 
 # esta función se encarga de recibir el mensaje completo desde el cliente
 # en caso de que el mensaje sea más grande que el tamaño del buffer 'buff_size', esta función va esperar a que
@@ -330,6 +368,10 @@ if __name__ == "__main__":
                 continue
             elif path.startswith("/build"):
                 client_socket.sendall(build_http_response(nombre_usuario))
+                client_socket.close()
+                continue
+            elif path == "/case3":
+                client_socket.sendall(build_case3_response(nombre_usuario))
                 client_socket.close()
                 continue
 
