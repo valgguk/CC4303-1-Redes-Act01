@@ -234,7 +234,7 @@ def build_403_response():
 <body>
     <h1>😾 Acceso Denegado</h1>
     <p>Este sitio ha sido bloqueado por el proxy.</p>
-    <img src="/gato.jpg" alt="gato bloqueado" width="300">
+    <img src="http://localhost:8000/gato.jpg" alt="gato bloqueado" width="300">
 </body>
 </html>"""
 
