@@ -42,7 +42,6 @@ def actualizar_cache(dominio, data):
     for dom, _ in top3:
         cache_frecuentes[dom] = data
 
-    
 #recibe el mensaje de query en bytes obtenido desde el cliente
 def resolver(mensaje_consulta, server_ip=None):
     # a.- Envíe el mensaje query al servidor raíz de DNS y espere su respuesta. 
