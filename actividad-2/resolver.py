@@ -37,26 +37,27 @@ def actualizar_cache(dominio, data):
     for dom in ultimas_20_consultas:
         conteo[dom] = conteo.get(dom, 0) + 1
 
-    last_3 = sorted(conteo.items(), key=lambda item: item[1], reverse=True)[:3]
+    top3 = sorted(conteo.items(), key=lambda item: item[1], reverse=True)[:3]
     cache_frecuentes.clear()
-    for dom, _ in last_3:
+    for dom, _ in top3:
         cache_frecuentes[dom] = data
 
 
-def resolver_redirigido(ip_destino, mensaje_consulta):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.settimeout(5)
-    sock.sendto(mensaje_consulta, (ip_destino, ROOT_SERVER_PORT))
-    data, _ = sock.recvfrom(buff_size)
-    sock.close()
-    # Agrega esto:
-    dns_query = DNSRecord.parse(mensaje_consulta)
-    dominio = str(dns_query.q.qname).rstrip('.')
-    actualizar_cache(dominio, data)
-    return data
+# def resolver_redirigido(ip_destino, mensaje_consulta):
+#     print(f"[DEBUG] Entrando a resolver_redirigido con IP: {ip_destino}")
+#     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+#     sock.settimeout(5)
+#     sock.sendto(mensaje_consulta, (ip_destino, ROOT_SERVER_PORT))
+#     data, _ = sock.recvfrom(buff_size)
+#     sock.close()
+#     # ⚠️ Agrega esto:
+#     dns_query = DNSRecord.parse(mensaje_consulta)
+#     dominio = str(dns_query.q.qname).rstrip('.')
+#     actualizar_cache(dominio, data)
+#     return data
     
 #recibe el mensaje de query en bytes obtenido desde el cliente
-def resolver(mensaje_consulta):
+def resolver(mensaje_consulta, server_ip=None, server_name=None):
     # a.- Envíe el mensaje query al servidor raíz de DNS y espere su respuesta. 
     # Se recomienda dejar la IP del servidor raíz en una variable global de su programa. 
     # La dirección del servidor raíz es la siguiente: 192.33.4.12 y el puerto es el correspondiente 
@@ -64,16 +65,20 @@ def resolver(mensaje_consulta):
     # Parseamos la consulta para obtener el dominio
     dns_query = parse_dns_message(mensaje_consulta)
     dominio = dns_query["QNAME"].rstrip('.')
-
-    # Verificar si está en caché ANTES de consultar servidores DNS
-    if dominio in cache_frecuentes:
-        print(f"(debug) [CACHÉ] Respondiendo '{dominio}' desde caché")
-        return cache_frecuentes[dominio]
+    # Para poder aplicar recursividad, fue necesario agregar los parámetros server_ip y server_name
+    # Si no se especifica server_ip, usamos el servidor raíz
+    if server_ip is None:
+        server_ip = ROOT_SERVER_ADDRESS
+        server_name = "."
+        # Verificar si está en caché ANTES de consultar servidores DNS
+        if dominio in cache_frecuentes:
+            print(f"(debug) [CACHÉ] Respondiendo '{dominio}' desde caché")
+            return cache_frecuentes[dominio]
     
     print(f"(debug) Consultando '{dominio}' a '.' con dirección IP '{ROOT_SERVER_ADDRESS}'")
     new_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
    # Enviamos el mensaje al servidor raíz
-    new_socket.sendto(mensaje_consulta, (ROOT_SERVER_ADDRESS, ROOT_SERVER_PORT))
+    new_socket.sendto(mensaje_consulta, (server_ip, ROOT_SERVER_PORT)) # server_ip -> ROOT_SERVER_ADDRESS
     # Esperamos la respuesta del servidor raíz
     data, addr = new_socket.recvfrom(buff_size) # buffer de 4096 bytes
     # Parseamos el mensaje recibido
@@ -101,6 +106,7 @@ def resolver(mensaje_consulta):
     # Check for NS records in Authority section
     for auth_rr in mensaje_recv.get("Authority", []):
         if " NS " in auth_rr:
+            ns_name = auth_rr.split()[-1].rstrip('.') # Obtenemos un NS del Authority
             # Check Additional section for A records
             for additional_rr in mensaje_recv.get("Additional", []):
                 if " A " in additional_rr:
@@ -109,7 +115,7 @@ def resolver(mensaje_consulta):
                     print(f"(debug) Consultando '{dominio}' a '{auth_rr.split()[-1]}' con dirección IP '{ip}'")
                     # Enviamos la query al Name Server con la IP obtenida
                     #print(f"[->] Redirigiendo a {ip} (glue record)")
-                    return resolver_redirigido(ip, mensaje_consulta)
+                    return resolver(mensaje_consulta, ip, ns_name)
                     # return resolver(data)?
             # Si no encontramos una IP en Additional
             ns_name = auth_rr.split()[-1].rstrip('.') # Obtenemos un NS del Authority
@@ -123,7 +129,7 @@ def resolver(mensaje_consulta):
                     ip = rr_str.split()[-1]
                     print(f"(debug) Consultando '{dominio}' a '{ns_name}' con dirección IP '{ip}'")
                     #print(f"[->] Redirigiendo a {ip} (resuelto recursivamente)")
-                    return resolver_redirigido(ip, mensaje_consulta)
+                    return resolver(mensaje_consulta, ip, ns_name)
             # d. Si recibe algún otro tipo de respuesta simplemente ignórela.
             print("[X] No se pudo resolver la consulta: sin respuesta útil.")
             return None
