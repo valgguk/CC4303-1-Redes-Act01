@@ -4,6 +4,7 @@ import json
 import sys
 from dnslib import DNSRecord
 import dnslib
+from dnslib.dns import QTYPE
 
 def parse_dns_message(raw_data):
     # Usamos DNSRecord de dnslib para parsear el mensaje DNS
@@ -143,19 +144,33 @@ def resolver(mensaje_consulta, server_ip=None, server_name=None):
 
     # i.- Si encuentra una respuesta tipo A, entonces envíe la query del paso a) a la primera dirección IP contenida en la sección Additional.
     # ii.- En caso de no encontrar alguna IP en la sección Additional, tome el nombre de un Name Server desde la sección Authority y use recursivamente su función para resolver la IP asociada al nombre de dominio del Name Server. Una vez obtenga la IP del Name Server, envíe la query obtenida en el paso a) a dicha IP. Una vez recibida la respuesta, vuelva al paso b).
-# Función para setear el bit RA en la respuesta DNS
-# De esta forma indicamos que el resolver puede hacer consultas recursivas
-def set_ra_bit(dns_response_bytes):
-    # Convertimos a bytearray mutable
-    response = bytearray(dns_response_bytes)
-    # Seteamos el bit RA (bit 7 del byte 3)
-    response[3] |= 0b10000000  # o 0x80
-    return bytes(response)
 
-def reemplazar_id_respuesta(original_query_bytes, response_bytes):
-    original_id = original_query_bytes[:2]  # Primeros 2 bytes = Transaction ID
-    response = bytearray(response_bytes)
-    response[0:2] = original_id             # Sobrescribimos el ID en la respuesta
+def crear_respuesta_limpia(mensaje_consulta, respuesta_completa):
+    """
+    Crea una respuesta DNS limpia usando dnslib y mantiene el Transaction ID original
+    """
+    # Parsear ambos mensajes con dnslib
+    query = DNSRecord.parse(mensaje_consulta)
+    full_response = DNSRecord.parse(respuesta_completa)
+    
+    # Copiar solo las respuestas tipo A
+    for rr in full_response.rr:
+        if rr.rtype == QTYPE.A:
+            query.add_answer(rr)
+    
+    # Configurar flags
+    query.header.qr = 1
+    query.header.rd = 1  
+    query.header.ra = 1
+    
+    # Crear respuesta limpia
+    clean_response = query.pack()
+    
+    # Mantener el Transaction ID original para cuando usamos
+    original_id = mensaje_consulta[:2]  # Primeros 2 bytes = Transaction ID
+    response = bytearray(clean_response)
+    response[0:2] = original_id         # Sobrescribimos el ID en la respuesta
+    
     return bytes(response)
 
 ROOT_SERVER_ADDRESS = "192.33.4.12"
@@ -208,9 +223,9 @@ if __name__ == "__main__":
         response = resolver(request_test)
         # Si se logró resolver, se envía al cliente
         if response:
-            response = set_ra_bit(response) # Seteamos el bit RA en la respuesta
-            response = reemplazar_id_respuesta(request_test, response)
-            server_socket.sendto(response, addr)
+            # Crear respuesta limpia (incluye mantener Transaction ID)
+            clean_response = crear_respuesta_limpia(request_test, response)
+            server_socket.sendto(clean_response, addr)
             print(f"[✓] Respuesta enviada a {addr}")
         else:
             print("[X] No se pudo resolver la consulta.")
