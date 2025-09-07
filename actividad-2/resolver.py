@@ -37,9 +37,9 @@ def actualizar_cache(dominio, data):
     for dom in ultimas_20_consultas:
         conteo[dom] = conteo.get(dom, 0) + 1
 
-    top3 = sorted(conteo.items(), key=lambda item: item[1], reverse=True)[:3]
+    last_3 = sorted(conteo.items(), key=lambda item: item[1], reverse=True)[:3]
     cache_frecuentes.clear()
-    for dom, _ in top3:
+    for dom, _ in last_3:
         cache_frecuentes[dom] = data
 
 
@@ -49,7 +49,7 @@ def resolver_redirigido(ip_destino, mensaje_consulta):
     sock.sendto(mensaje_consulta, (ip_destino, ROOT_SERVER_PORT))
     data, _ = sock.recvfrom(buff_size)
     sock.close()
-    # ⚠️ Agrega esto:
+    # Agrega esto:
     dns_query = DNSRecord.parse(mensaje_consulta)
     dominio = str(dns_query.q.qname).rstrip('.')
     actualizar_cache(dominio, data)
@@ -62,10 +62,10 @@ def resolver(mensaje_consulta):
     # La dirección del servidor raíz es la siguiente: 192.33.4.12 y el puerto es el correspondiente 
     # a servidores DNS.
     # Parseamos la consulta para obtener el dominio
-    dns_query = DNSRecord.parse(mensaje_consulta)
-    dominio = str(dns_query.q.qname).rstrip('.')
+    dns_query = parse_dns_message(mensaje_consulta)
+    dominio = dns_query["QNAME"].rstrip('.')
 
-    # 🟡 Verificar si está en caché ANTES de consultar servidores DNS
+    # Verificar si está en caché ANTES de consultar servidores DNS
     if dominio in cache_frecuentes:
         print(f"(debug) [CACHÉ] Respondiendo '{dominio}' desde caché")
         return cache_frecuentes[dominio]
