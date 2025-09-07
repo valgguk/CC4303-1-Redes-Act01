@@ -9,13 +9,11 @@ from dnslib.dns import QTYPE
 def parse_dns_message(raw_data):
     # Usamos DNSRecord de dnslib para parsear el mensaje DNS
     dns_record = DNSRecord.parse(raw_data)
-
     # Extraemos la información clave
     qname = str(dns_record.q.qname) # dominio a consultar
     ancount = len(dns_record.rr)       # Resource Records (RRs) respondiendo la pregunta que haremo
     nscount = len(dns_record.auth)     # RRs que corresponden a una respuesta autorizada
     arcount = len(dns_record.ar)       # RRs con información adicional
-
     # Armar estructura con todas las secciones parseadas
     parsed = {
         "QNAME": qname, # dominio a consultar: example.com
@@ -29,6 +27,7 @@ def parse_dns_message(raw_data):
 
     return parsed
 
+# Función para actualizar la caché de los 3 dominios más frecuentes
 def actualizar_cache(dominio, data):
     ultimas_20_consultas.append(dominio)
     if len(ultimas_20_consultas) > 20:
@@ -37,28 +36,15 @@ def actualizar_cache(dominio, data):
     conteo = {}
     for dom in ultimas_20_consultas:
         conteo[dom] = conteo.get(dom, 0) + 1
-
+    # Obtener los 3 dominios más frecuentes y actualizar la caché
     top3 = sorted(conteo.items(), key=lambda item: item[1], reverse=True)[:3]
     cache_frecuentes.clear()
     for dom, _ in top3:
         cache_frecuentes[dom] = data
 
-
-# def resolver_redirigido(ip_destino, mensaje_consulta):
-#     print(f"[DEBUG] Entrando a resolver_redirigido con IP: {ip_destino}")
-#     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-#     sock.settimeout(5)
-#     sock.sendto(mensaje_consulta, (ip_destino, ROOT_SERVER_PORT))
-#     data, _ = sock.recvfrom(buff_size)
-#     sock.close()
-#     # ⚠️ Agrega esto:
-#     dns_query = DNSRecord.parse(mensaje_consulta)
-#     dominio = str(dns_query.q.qname).rstrip('.')
-#     actualizar_cache(dominio, data)
-#     return data
     
 #recibe el mensaje de query en bytes obtenido desde el cliente
-def resolver(mensaje_consulta, server_ip=None, server_name=None):
+def resolver(mensaje_consulta, server_ip=None):
     # a.- Envíe el mensaje query al servidor raíz de DNS y espere su respuesta. 
     # Se recomienda dejar la IP del servidor raíz en una variable global de su programa. 
     # La dirección del servidor raíz es la siguiente: 192.33.4.12 y el puerto es el correspondiente 
@@ -70,7 +56,6 @@ def resolver(mensaje_consulta, server_ip=None, server_name=None):
     # Si no se especifica server_ip, usamos el servidor raíz
     if server_ip is None:
         server_ip = ROOT_SERVER_ADDRESS
-        server_name = "."
         # Verificar si está en caché ANTES de consultar servidores DNS
         if dominio in cache_frecuentes:
             print(f"(debug) [CACHÉ] Respondiendo '{dominio}' desde caché")
@@ -84,14 +69,6 @@ def resolver(mensaje_consulta, server_ip=None, server_name=None):
     data, addr = new_socket.recvfrom(buff_size) # buffer de 4096 bytes
     # Parseamos el mensaje recibido
     mensaje_recv = parse_dns_message(data)
-    # dominio = mensaje_recv["QNAME"].rstrip('.')
-    # print(f"(debug) Consultando '{dominio}' a '.' con dirección IP '{ROOT_SERVER_ADDRESS}'")
-    # # Verificar si está en caché
-    # if dominio in cache_frecuentes:
-    #     print(f"(debug) [CACHÉ] Respondiendo '{dominio}' desde caché")
-    #     return cache_frecuentes[dominio]
-    # Cerramos el socket
-    # new_socket.close()
     #b.- Si el mensaje answer recibido tiene la respuesta a la consulta, es decir, 
     # viene alguna respuesta de tipo A en la sección Answer del mensaje, 
     # entonces simplemente haga que su función retorne el mensaje recibido.
@@ -104,51 +81,37 @@ def resolver(mensaje_consulta, server_ip=None, server_name=None):
     #c.- Si la respuesta recibida corresponde a una delegación a otro Name Server, es decir, 
     # vienen respuestas de tipo NS en la sección Authority, revise si viene alguna respuesta 
     # de tipo A en la sección Additional.
-    # Check for NS records in Authority section
+    # Revisamos la sección Authority para ver si hay un NS
     for auth_rr in mensaje_recv.get("Authority", []):
-        if " NS " in auth_rr:
-            ns_name = auth_rr.split()[-1].rstrip('.') # Obtenemos un NS del Authority
-            # Check Additional section for A records
+        if " NS " in auth_rr: # Si hay un NS en Authority
+            # Revisamos la sección Additional para ver si hay una IP para ese NS
             for additional_rr in mensaje_recv.get("Additional", []):
-                if " A " in additional_rr:
+                if " A " in additional_rr: # Si hay una IP en Additional
+                    # i.- Si encuentra una respuesta tipo A, entonces envíe la query del paso a) a la primera dirección IP contenida en la sección Additional.
                     # Obtenemos la IP de la sección Additional 
                     ip = additional_rr.split()[-1]
                     print(f"(debug) Consultando '{dominio}' a '{auth_rr.split()[-1]}' con dirección IP '{ip}'")
                     # Enviamos la query al Name Server con la IP obtenida
-                    #print(f"[->] Redirigiendo a {ip} (glue record)")
-                    return resolver(mensaje_consulta, ip, ns_name)
-                    # return resolver(data)?
+                    return resolver(mensaje_consulta, ip)
             # Si no encontramos una IP en Additional
+            # ii.- En caso de no encontrar alguna IP en la sección Additional, tome el nombre de un Name Server desde la sección Authority y use recursivamente su función para resolver la IP asociada al nombre de dominio del Name Server. Una vez obtenga la IP del Name Server, envíe la query obtenida en el paso a) a dicha IP. Una vez recibida la respuesta, vuelva al paso b).
             ns_name = auth_rr.split()[-1].rstrip('.') # Obtenemos un NS del Authority
-            print(f"[->] Resolviendo IP de {ns_name}...")
             # use recursivamente su función para resolver la IP asociada al nombre de dominio del Name Server
             ns_query = DNSRecord.question(ns_name + ".").pack() # pack -> lo pasa a bytes
-            ip_response = resolver(ns_query) # Implementar resolver_dns para obtener la IP del NS
+            ip_response = resolver(ns_query) # Resolver para obtener la IP del NS
             parsed_response = parse_dns_message(ip_response)
             for rr_str in parsed_response.get("Answers", []):
                 if " A " in rr_str:
+                    # Obtenemos la IP del NS resuelto
                     ip = rr_str.split()[-1]
                     print(f"(debug) Consultando '{dominio}' a '{ns_name}' con dirección IP '{ip}'")
-                    #print(f"[->] Redirigiendo a {ip} (resuelto recursivamente)")
-                    return resolver(mensaje_consulta, ip, ns_name)
+                    return resolver(mensaje_consulta, ip)
             # d. Si recibe algún otro tipo de respuesta simplemente ignórela.
-            print("[X] No se pudo resolver la consulta: sin respuesta útil.")
             return None
-    
 
 
-    # for rr_str in mensaje_recv.get("Additional", []):
-    #     if " A " in rr_str:
-    #         # i.- Si encuentra una respuesta tipo A, entonces envíe la query del paso a) a la primera dirección IP contenida en la sección Additional.
-    #         return resolver(mensaje_consulta)
-
-    # i.- Si encuentra una respuesta tipo A, entonces envíe la query del paso a) a la primera dirección IP contenida en la sección Additional.
-    # ii.- En caso de no encontrar alguna IP en la sección Additional, tome el nombre de un Name Server desde la sección Authority y use recursivamente su función para resolver la IP asociada al nombre de dominio del Name Server. Una vez obtenga la IP del Name Server, envíe la query obtenida en el paso a) a dicha IP. Una vez recibida la respuesta, vuelva al paso b).
-
+# Crear respuesta limpia manteniendo el ID de la consulta original
 def crear_respuesta_limpia(mensaje_consulta, respuesta_completa):
-    """
-    Crea una respuesta DNS limpia usando dnslib y mantiene el Transaction ID original
-    """
     # Parsear ambos mensajes con dnslib
     query = DNSRecord.parse(mensaje_consulta)
     full_response = DNSRecord.parse(respuesta_completa)
@@ -170,7 +133,6 @@ def crear_respuesta_limpia(mensaje_consulta, respuesta_completa):
     original_id = mensaje_consulta[:2]  # Primeros 2 bytes = Transaction ID
     response = bytearray(clean_response)
     response[0:2] = original_id         # Sobrescribimos el ID en la respuesta
-    
     return bytes(response)
 
 ROOT_SERVER_ADDRESS = "192.33.4.12"
